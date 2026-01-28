@@ -775,8 +775,8 @@ export async function runGatewayUpdate(opts: UpdateRunnerOptions = {}): Promise<
     } else {
       steps.push({
         name: "restore control-ui",
+        command: `git -C ${gitRoot} checkout -- dist/control-ui/`,
         cwd: gitRoot,
-        argv: ["git", "-C", gitRoot, "checkout", "--", "dist/control-ui/"],
         exitCode: 0,
         durationMs: 0,
         stdoutTail: "(skipped: dist/control-ui not tracked in git)",
