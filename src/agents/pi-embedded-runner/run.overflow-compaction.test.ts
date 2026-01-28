@@ -78,7 +78,7 @@ vi.mock("../auth-profiles.js", () => ({
 vi.mock("../defaults.js", () => ({
   DEFAULT_CONTEXT_TOKENS: 200000,
   DEFAULT_MODEL: "test-model",
-  DEFAULT_PROVIDER: "anthropic",
+  DEFAULT_PROVIDER: "openai-codex",
 }));
 
 vi.mock("../failover-error.js", () => ({

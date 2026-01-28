@@ -738,14 +738,51 @@ export async function runGatewayUpdate(opts: UpdateRunnerOptions = {}): Promise<
 
     // Restore dist/control-ui/ to committed state to prevent dirty repo after update
     // (ui:build regenerates assets with new hashes, which would block future updates)
-    const restoreUiStep = await runStep(
+    //
+    // Some installs (or historical commits) may not have dist/control-ui tracked in git.
+    // In that case, "git checkout -- dist/control-ui/" fails with a pathspec error.
+    // Treat that as a no-op rather than failing the entire update.
+    const rawHasControlUiStep = await runStep(
       step(
-        "restore control-ui",
-        ["git", "-C", gitRoot, "checkout", "--", "dist/control-ui/"],
+        "check control-ui tracked",
+        ["git", "-C", gitRoot, "cat-file", "-e", "HEAD:dist/control-ui/index.html"],
         gitRoot,
       ),
     );
-    steps.push(restoreUiStep);
+
+    // This check is informational. If the file is not tracked, treat it as a clean skip
+    // rather than failing the update.
+    const hasControlUiStep: UpdateStepResult =
+      rawHasControlUiStep.exitCode === 0
+        ? rawHasControlUiStep
+        : {
+            ...rawHasControlUiStep,
+            exitCode: 0,
+            stdoutTail: "(missing: dist/control-ui not tracked in git)",
+            stderrTail: rawHasControlUiStep.stderrTail,
+          };
+    steps.push(hasControlUiStep);
+
+    if (rawHasControlUiStep.exitCode === 0) {
+      const restoreUiStep = await runStep(
+        step(
+          "restore control-ui",
+          ["git", "-C", gitRoot, "checkout", "--", "dist/control-ui/"],
+          gitRoot,
+        ),
+      );
+      steps.push(restoreUiStep);
+    } else {
+      steps.push({
+        name: "restore control-ui",
+        cwd: gitRoot,
+        argv: ["git", "-C", gitRoot, "checkout", "--", "dist/control-ui/"],
+        exitCode: 0,
+        durationMs: 0,
+        stdoutTail: "(skipped: dist/control-ui not tracked in git)",
+        stderrTail: null,
+      });
+    }
 
     const doctorStep = await runStep(
       step(

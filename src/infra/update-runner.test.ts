@@ -112,6 +112,7 @@ describe("runGatewayUpdate", () => {
       "pnpm install": { stdout: "" },
       "pnpm build": { stdout: "" },
       "pnpm ui:build": { stdout: "" },
+      [`git -C ${tempDir} cat-file -e HEAD:dist/control-ui/index.html`]: { stdout: "" },
       [`git -C ${tempDir} checkout -- dist/control-ui/`]: { stdout: "" },
       "pnpm openclaw doctor --non-interactive": { stdout: "" },
     });

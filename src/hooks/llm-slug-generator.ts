@@ -12,10 +12,20 @@ import {
   resolveAgentWorkspaceDir,
   resolveAgentDir,
 } from "../agents/agent-scope.js";
+import { resolveConfiguredModelRef } from "../agents/model-selection.js";
+import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
+import { resolveEnvApiKey } from "../agents/model-auth.js";
+import { ensureAuthProfileStore, listProfilesForProvider } from "../agents/auth-profiles.js";
 
 /**
  * Generate a short 1-2 word filename slug from session content using LLM
  */
+function hasAuthForProvider(params: { provider: string; agentDir: string }): boolean {
+  if (resolveEnvApiKey(params.provider)?.apiKey) return true;
+  const store = ensureAuthProfileStore(params.agentDir, { allowKeychainPrompt: false });
+  return listProfilesForProvider(store, params.provider).length > 0;
+}
+
 export async function generateSlugViaLLM(params: {
   sessionContent: string;
   cfg: OpenClawConfig;
@@ -26,6 +36,17 @@ export async function generateSlugViaLLM(params: {
     const agentId = resolveDefaultAgentId(params.cfg);
     const workspaceDir = resolveAgentWorkspaceDir(params.cfg, agentId);
     const agentDir = resolveAgentDir(params.cfg, agentId);
+
+    // If we don't have credentials for the effective provider, don't attempt an LLM call.
+    // This keeps /new (session-memory) fast and prevents noisy auth errors in tests.
+    const effective = resolveConfiguredModelRef({
+      cfg: params.cfg,
+      defaultProvider: DEFAULT_PROVIDER,
+      defaultModel: DEFAULT_MODEL,
+    });
+    if (!hasAuthForProvider({ provider: effective.provider, agentDir })) {
+      return null;
+    }
 
     // Create a temporary session file for this one-off LLM call
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-slug-"));
@@ -69,7 +90,8 @@ Reply with ONLY the slug, nothing else. Examples: "vendor-pitch", "api-design", 
 
     return null;
   } catch (err) {
-    console.error("[llm-slug-generator] Failed to generate slug:", err);
+    // Best-effort only: slug generation should never break the /new flow.
+    // Keep this quiet (or at most debug) to avoid log spam when auth isn't configured.
     return null;
   } finally {
     // Clean up temporary session file
