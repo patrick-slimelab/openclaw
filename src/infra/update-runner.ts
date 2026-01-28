@@ -764,13 +764,27 @@ export async function runGatewayUpdate(opts: UpdateRunnerOptions = {}): Promise<
     steps.push(hasControlUiStep);
 
     if (rawHasControlUiStep.exitCode === 0) {
-      const restoreUiStep = await runStep(
+      const restoreUiStepRaw = await runStep(
         step(
           "restore control-ui",
           ["git", "-C", gitRoot, "checkout", "--", "dist/control-ui/"],
           gitRoot,
         ),
       );
+
+      const pathspecMissing =
+        restoreUiStepRaw.exitCode !== 0 &&
+        (restoreUiStepRaw.stderrTail?.includes("pathspec") ||
+          restoreUiStepRaw.stderrTail?.includes("did not match any file"));
+
+      const restoreUiStep: UpdateStepResult = pathspecMissing
+        ? {
+            ...restoreUiStepRaw,
+            exitCode: 0,
+            stdoutTail: "(skipped: dist/control-ui not tracked in git)",
+          }
+        : restoreUiStepRaw;
+
       steps.push(restoreUiStep);
     } else {
       steps.push({
