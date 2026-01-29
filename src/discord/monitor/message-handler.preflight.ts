@@ -177,15 +177,38 @@ export async function preflightDiscordMessage(
     },
   });
   const mentionRegexes = buildMentionRegexes(params.cfg, route.agentId);
-  const explicitlyMentioned = Boolean(
+  
+  // Check for explicit bot mention via payload (from library resolution)
+  const explicitlyMentionedByPayload = Boolean(
     botId && message.mentionedUsers?.some((user: User) => user.id === botId),
   );
-  const hasAnyMention = Boolean(
-    !isDirectMessage &&
-    (message.mentionedEveryone ||
-      (message.mentionedUsers?.length ?? 0) > 0 ||
-      (message.mentionedRoles?.length ?? 0) > 0),
+  
+  // Fallback: check raw message text for bot mention if payload detection failed
+  const explicitlyMentionedByText = Boolean(
+    botId && typeof baseText === "string" && new RegExp(`<@!?${botId}>`).test(baseText),
   );
+  
+  const explicitlyMentioned = explicitlyMentionedByPayload || explicitlyMentionedByText;
+
+  // Check for any mention via payload
+  const hasAnyMentionByPayload = Boolean(
+    !isDirectMessage &&
+      (message.mentionedEveryone ||
+        (message.mentionedUsers?.length ?? 0) > 0 ||
+        (message.mentionedRoles?.length ?? 0) > 0),
+  );
+  
+  // Fallback: check raw text for mention patterns
+  const hasAnyMentionByText = Boolean(
+    !isDirectMessage &&
+      typeof baseText === "string" &&
+      (baseText.includes("@everyone") ||
+        baseText.includes("@here") ||
+        /<@!?\d+>/.test(baseText) ||
+        /<@&\d+>/.test(baseText)),
+  );
+  
+  const hasAnyMention = hasAnyMentionByPayload || hasAnyMentionByText;
   const wasMentioned =
     !isDirectMessage &&
     matchesMentionWithExplicit({
