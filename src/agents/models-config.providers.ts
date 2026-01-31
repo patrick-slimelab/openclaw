@@ -65,8 +65,11 @@ const QWEN_PORTAL_DEFAULT_COST = {
   cacheWrite: 0,
 };
 
-const OLLAMA_BASE_URL = "http://127.0.0.1:11434/v1";
-const OLLAMA_API_BASE_URL = "http://127.0.0.1:11434";
+const OLLAMA_BASE_URLS = [
+  "http://host.docker.internal:11434", // Docker containers accessing host
+  "http://127.0.0.1:11434", // Native/local ollama
+];
+const OLLAMA_V1_PATH = "/v1";
 const OLLAMA_DEFAULT_CONTEXT_WINDOW = 128000;
 const OLLAMA_DEFAULT_MAX_TOKENS = 8192;
 const OLLAMA_DEFAULT_COST = {
@@ -96,37 +99,44 @@ async function discoverOllamaModels(): Promise<ModelDefinitionConfig[]> {
   if (process.env.VITEST || process.env.NODE_ENV === "test") {
     return [];
   }
-  try {
-    const response = await fetch(`${OLLAMA_API_BASE_URL}/api/tags`, {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) {
-      console.warn(`Failed to discover Ollama models: ${response.status}`);
-      return [];
+
+  // Try multiple ollama endpoints (Docker host access + localhost)
+  const endpoints = OLLAMA_BASE_URLS.map((base) => `${base}/api/tags`);
+
+  for (const url of endpoints) {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) {
+        continue; // Try next endpoint
+      }
+      const data = (await response.json()) as OllamaTagsResponse;
+      if (!data.models || data.models.length === 0) {
+        continue;
+      }
+      // Found working endpoint, map models
+      return data.models.map((model) => {
+        const modelId = model.name;
+        const isReasoning =
+          modelId.toLowerCase().includes("r1") || modelId.toLowerCase().includes("reasoning");
+        return {
+          id: modelId,
+          name: modelId,
+          reasoning: isReasoning,
+          input: ["text"],
+          cost: OLLAMA_DEFAULT_COST,
+          contextWindow: OLLAMA_DEFAULT_CONTEXT_WINDOW,
+          maxTokens: OLLAMA_DEFAULT_MAX_TOKENS,
+        };
+      });
+    } catch {
+      // Try next endpoint
+      continue;
     }
-    const data = (await response.json()) as OllamaTagsResponse;
-    if (!data.models || data.models.length === 0) {
-      console.warn("No Ollama models found on local instance");
-      return [];
-    }
-    return data.models.map((model) => {
-      const modelId = model.name;
-      const isReasoning =
-        modelId.toLowerCase().includes("r1") || modelId.toLowerCase().includes("reasoning");
-      return {
-        id: modelId,
-        name: modelId,
-        reasoning: isReasoning,
-        input: ["text"],
-        cost: OLLAMA_DEFAULT_COST,
-        contextWindow: OLLAMA_DEFAULT_CONTEXT_WINDOW,
-        maxTokens: OLLAMA_DEFAULT_MAX_TOKENS,
-      };
-    });
-  } catch (error) {
-    console.warn(`Failed to discover Ollama models: ${String(error)}`);
-    return [];
   }
+  // No ollama found on any endpoint - silent fail (normal if ollama not installed)
+  return [];
 }
 
 function normalizeApiKeyConfig(value: string): string {
@@ -387,8 +397,10 @@ async function buildVeniceProvider(): Promise<ProviderConfig> {
 
 async function buildOllamaProvider(): Promise<ProviderConfig> {
   const models = await discoverOllamaModels();
+  // Use first available endpoint + /v1 for OpenAI-compatible API
+  const baseUrl = OLLAMA_BASE_URLS[0] + OLLAMA_V1_PATH;
   return {
-    baseUrl: OLLAMA_BASE_URL,
+    baseUrl,
     api: "openai-completions",
     models,
   };
@@ -453,12 +465,17 @@ export async function resolveImplicitProviders(params: {
     providers.xiaomi = { ...buildXiaomiProvider(), apiKey: xiaomiKey };
   }
 
-  // Ollama provider - only add if explicitly configured
-  const ollamaKey =
-    resolveEnvApiKeyVarName("ollama") ??
-    resolveApiKeyFromProfiles({ provider: "ollama", store: authStore });
-  if (ollamaKey) {
-    providers.ollama = { ...(await buildOllamaProvider()), apiKey: ollamaKey };
+  // Ollama provider - add without requiring API key (local service)
+  const ollamaModels = await discoverOllamaModels();
+  if (ollamaModels.length > 0) {
+    // Use first available endpoint + /v1 for OpenAI-compatible API
+    const baseUrl = OLLAMA_BASE_URLS[0] + OLLAMA_V1_PATH;
+    providers.ollama = {
+      baseUrl,
+      api: "openai-completions",
+      apiKey: "ollama-local", // Dummy key - ollama doesn't actually need auth
+      models: ollamaModels,
+    };
   }
 
   return providers;
