@@ -142,6 +142,11 @@ const QWEN_PORTAL_DEFAULT_COST = {
   cacheWrite: 0,
 };
 
+const OLLAMA_BASE_URLS = [
+  "http://host.docker.internal:11434", // Docker containers accessing host
+  "http://127.0.0.1:11434", // Native/local ollama
+];
+const OLLAMA_V1_PATH = "/v1";
 const OLLAMA_BASE_URL = OLLAMA_NATIVE_BASE_URL;
 const OLLAMA_API_BASE_URL = OLLAMA_BASE_URL;
 const OLLAMA_SHOW_CONCURRENCY = 8;
@@ -270,65 +275,56 @@ async function queryOllamaContextWindow(
   }
 }
 
-async function discoverOllamaModels(
-  baseUrl?: string,
-  opts?: { quiet?: boolean },
-): Promise<ModelDefinitionConfig[]> {
+async function discoverOllamaModels(): Promise<ModelDefinitionConfig[]> {
   // Skip Ollama discovery in test environments
   if (process.env.VITEST || process.env.NODE_ENV === "test") {
     return [];
   }
-  try {
-    const apiBase = resolveOllamaApiBase(baseUrl);
-    const response = await fetch(`${apiBase}/api/tags`, {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) {
-      if (!opts?.quiet) {
-        log.warn(`Failed to discover Ollama models: ${response.status}`);
+
+  // Try multiple ollama endpoints (Docker host access + localhost), with upstream's batching
+  for (const endpointBase of OLLAMA_BASE_URLS) {
+    try {
+      const apiBase = endpointBase;
+      const response = await fetch(`${apiBase}/api/tags`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) {
+        continue; // Try next endpoint silently
       }
-      return [];
+      const data = (await response.json()) as OllamaTagsResponse;
+      if (!data.models || data.models.length === 0) {
+        continue;
+      }
+      const modelsToInspect = data.models.slice(0, OLLAMA_SHOW_MAX_MODELS);
+      const discovered: ModelDefinitionConfig[] = [];
+      for (let index = 0; index < modelsToInspect.length; index += OLLAMA_SHOW_CONCURRENCY) {
+        const batch = modelsToInspect.slice(index, index + OLLAMA_SHOW_CONCURRENCY);
+        const batchDiscovered = await Promise.all(
+          batch.map(async (model) => {
+            const modelId = model.name;
+            const contextWindow = await queryOllamaContextWindow(apiBase, modelId);
+            const isReasoning =
+              modelId.toLowerCase().includes("r1") || modelId.toLowerCase().includes("reasoning");
+            return {
+              id: modelId,
+              name: modelId,
+              reasoning: isReasoning,
+              input: ["text"],
+              cost: OLLAMA_DEFAULT_COST,
+              contextWindow: contextWindow ?? OLLAMA_DEFAULT_CONTEXT_WINDOW,
+              maxTokens: OLLAMA_DEFAULT_MAX_TOKENS,
+            } satisfies ModelDefinitionConfig;
+          }),
+        );
+        discovered.push(...batchDiscovered);
+      }
+      return discovered;
+    } catch {
+      continue; // Try next endpoint
     }
-    const data = (await response.json()) as OllamaTagsResponse;
-    if (!data.models || data.models.length === 0) {
-      log.debug("No Ollama models found on local instance");
-      return [];
-    }
-    const modelsToInspect = data.models.slice(0, OLLAMA_SHOW_MAX_MODELS);
-    if (modelsToInspect.length < data.models.length && !opts?.quiet) {
-      log.warn(
-        `Capping Ollama /api/show inspection to ${OLLAMA_SHOW_MAX_MODELS} models (received ${data.models.length})`,
-      );
-    }
-    const discovered: ModelDefinitionConfig[] = [];
-    for (let index = 0; index < modelsToInspect.length; index += OLLAMA_SHOW_CONCURRENCY) {
-      const batch = modelsToInspect.slice(index, index + OLLAMA_SHOW_CONCURRENCY);
-      const batchDiscovered = await Promise.all(
-        batch.map(async (model) => {
-          const modelId = model.name;
-          const contextWindow = await queryOllamaContextWindow(apiBase, modelId);
-          const isReasoning =
-            modelId.toLowerCase().includes("r1") || modelId.toLowerCase().includes("reasoning");
-          return {
-            id: modelId,
-            name: modelId,
-            reasoning: isReasoning,
-            input: ["text"],
-            cost: OLLAMA_DEFAULT_COST,
-            contextWindow: contextWindow ?? OLLAMA_DEFAULT_CONTEXT_WINDOW,
-            maxTokens: OLLAMA_DEFAULT_MAX_TOKENS,
-          } satisfies ModelDefinitionConfig;
-        }),
-      );
-      discovered.push(...batchDiscovered);
-    }
-    return discovered;
-  } catch (error) {
-    if (!opts?.quiet) {
-      log.warn(`Failed to discover Ollama models: ${String(error)}`);
-    }
-    return [];
   }
+  // No ollama found on any endpoint - silent fail (normal if ollama not installed)
+  return [];
 }
 
 async function discoverVllmModels(
@@ -382,6 +378,8 @@ async function discoverVllmModels(
     log.warn(`Failed to discover vLLM models: ${String(error)}`);
     return [];
   }
+  // No ollama found on any endpoint - silent fail (normal if ollama not installed)
+  return [];
 }
 
 function normalizeApiKeyConfig(value: string): string {
@@ -765,14 +763,13 @@ async function buildVeniceProvider(): Promise<ProviderConfig> {
   };
 }
 
-async function buildOllamaProvider(
-  configuredBaseUrl?: string,
-  opts?: { quiet?: boolean },
-): Promise<ProviderConfig> {
-  const models = await discoverOllamaModels(configuredBaseUrl, opts);
+async function buildOllamaProvider(): Promise<ProviderConfig> {
+  const models = await discoverOllamaModels();
+  // Use first available endpoint + /v1 for OpenAI-compatible API
+  const baseUrl = OLLAMA_BASE_URLS[0] + OLLAMA_V1_PATH;
   return {
-    baseUrl: resolveOllamaApiBase(configuredBaseUrl),
-    api: "ollama",
+    baseUrl,
+    api: "openai-completions",
     models,
   };
 }
@@ -1037,37 +1034,17 @@ export async function resolveImplicitProviders(params: {
     break;
   }
 
-  // Ollama provider - auto-discover if running locally, or add if explicitly configured.
-  // Use the user's configured baseUrl (from explicit providers) for model
-  // discovery so that remote / non-default Ollama instances are reachable.
-  // Skip discovery when explicit models are already defined.
-  const ollamaKey =
-    resolveEnvApiKeyVarName("ollama") ??
-    resolveApiKeyFromProfiles({ provider: "ollama", store: authStore });
-  const explicitOllama = params.explicitProviders?.ollama;
-  const hasExplicitModels =
-    Array.isArray(explicitOllama?.models) && explicitOllama.models.length > 0;
-  if (hasExplicitModels && explicitOllama) {
+  // Ollama provider - add without requiring API key (local service, multi-endpoint)
+  const ollamaModels = await discoverOllamaModels();
+  if (ollamaModels.length > 0) {
+    // Use first available endpoint + /v1 for OpenAI-compatible API
+    const baseUrl = OLLAMA_BASE_URLS[0] + OLLAMA_V1_PATH;
     providers.ollama = {
-      ...explicitOllama,
-      baseUrl: resolveOllamaApiBase(explicitOllama.baseUrl),
-      api: explicitOllama.api ?? "ollama",
-      apiKey: ollamaKey ?? explicitOllama.apiKey ?? "ollama-local",
+      baseUrl,
+      api: "openai-completions",
+      apiKey: "ollama-local", // Dummy key - ollama doesn't actually need auth
+      models: ollamaModels,
     };
-  } else {
-    const ollamaBaseUrl = explicitOllama?.baseUrl;
-    const hasExplicitOllamaConfig = Boolean(explicitOllama);
-    // Only suppress warnings for implicit local probing when user has not
-    // explicitly configured Ollama.
-    const ollamaProvider = await buildOllamaProvider(ollamaBaseUrl, {
-      quiet: !ollamaKey && !hasExplicitOllamaConfig,
-    });
-    if (ollamaProvider.models.length > 0 || ollamaKey || explicitOllama?.apiKey) {
-      providers.ollama = {
-        ...ollamaProvider,
-        apiKey: ollamaKey ?? explicitOllama?.apiKey ?? "ollama-local",
-      };
-    }
   }
 
   // vLLM provider - OpenAI-compatible local server (opt-in via env/profile).
