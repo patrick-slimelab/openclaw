@@ -4,6 +4,7 @@ import { streamSimple } from "@mariozechner/pi-ai";
 import type { ThinkLevel } from "../../auto-reply/thinking.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { log } from "./logger.js";
+import { createOllamaAwareStreamFn } from "./ollama-stream.js";
 
 const OPENROUTER_APP_HEADERS: Record<string, string> = {
   "HTTP-Referer": "https://openclaw.ai",
@@ -745,6 +746,7 @@ function createZaiToolStreamWrapper(
 /**
  * Apply extra params (like temperature) to an agent's streamFn.
  * Also adds OpenRouter app attribution headers when using the OpenRouter provider.
+ * Also applies Ollama-aware stream handling for providers with streamToolCalls: false.
  *
  * @internal Exported for testing
  */
@@ -757,6 +759,14 @@ export function applyExtraParamsToAgent(
   thinkingLevel?: ThinkLevel,
   agentId?: string,
 ): void {
+  // First, apply Ollama-aware stream handling for providers that need non-streaming tool calls
+  const ollamaAwareStreamFn = createOllamaAwareStreamFn({
+    cfg,
+    provider,
+    baseStreamFn: agent.streamFn,
+  });
+  agent.streamFn = ollamaAwareStreamFn;
+
   const extraParams = resolveExtraParams({
     cfg,
     provider,
