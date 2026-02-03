@@ -84,6 +84,8 @@ export type MsgContext = {
   GroupSubject?: string;
   /** Human label for channel-like group conversations (e.g. #general, #support). */
   GroupChannel?: string;
+  /** Human-friendly channel name/alias label (kept separate from stable GroupChannel ids). */
+  GroupChannelLabel?: string;
   GroupSpace?: string;
   GroupMembers?: string;
   GroupSystemPrompt?: string;
