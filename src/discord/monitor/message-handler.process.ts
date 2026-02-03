@@ -188,8 +188,13 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
   const isForumStarter =
     Boolean(threadChannelId && isForumParent && forumParentSlug) && message.id === threadChannelId;
   const forumContextLine = isForumStarter ? `[Forum parent: #${forumParentSlug}]` : null;
-  const groupChannel = isGuildMessage && displayChannelSlug ? `#${displayChannelSlug}` : undefined;
-  const groupSubject = isDirectMessage ? undefined : groupChannel;
+  // Stable channel ID for GroupChannel (not display name which can change)
+  const groupChannel = isGuildMessage ? `discord:channel:${message.channelId}` : undefined;
+  const groupSubject = isDirectMessage
+    ? undefined
+    : displayChannelSlug
+      ? `#${displayChannelSlug}`
+      : `#${message.channelId}`;
   const untrustedChannelMetadata = isGuildMessage
     ? buildUntrustedChannelMetadata({
         source: "discord",
@@ -204,9 +209,11 @@ export async function processDiscordMessage(ctx: DiscordMessagePreflightContext)
     ? (sender.tag ?? sender.name ?? author.username)
     : author.username;
   const senderTag = sender.tag;
-  const systemPromptParts = [channelConfig?.systemPrompt?.trim() || null].filter(
-    (entry): entry is string => Boolean(entry),
-  );
+  const channelDescription = channelInfo?.topic?.trim();
+  const systemPromptParts = [
+    channelDescription ? `Channel topic: ${channelDescription}` : null,
+    channelConfig?.systemPrompt?.trim() || null,
+  ].filter((entry): entry is string => Boolean(entry));
   const groupSystemPrompt =
     systemPromptParts.length > 0 ? systemPromptParts.join("\n\n") : undefined;
   const ownerAllowFrom = resolveDiscordOwnerAllowFrom({
