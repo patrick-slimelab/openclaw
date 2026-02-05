@@ -508,7 +508,13 @@ const CommonToolPolicyFields = {
 
 export const AgentToolsSchema = z
   .object({
-    ...CommonToolPolicyFields,
+    profile: ToolProfileSchema,
+    allow: z.array(z.string()).optional(),
+    alsoAllow: z.array(z.string()).optional(),
+    deny: z.array(z.string()).optional(),
+    byProvider: z.record(z.string(), ToolPolicyWithProfileSchema).optional(),
+    aliases: z.record(z.string(), z.string()).optional(),
+    aliasesOnly: z.boolean().optional(),
     elevated: z
       .object({
         enabled: z.boolean().optional(),
@@ -710,7 +716,13 @@ export const AgentEntrySchema = z
 
 export const ToolsSchema = z
   .object({
-    ...CommonToolPolicyFields,
+    profile: ToolProfileSchema,
+    allow: z.array(z.string()).optional(),
+    alsoAllow: z.array(z.string()).optional(),
+    deny: z.array(z.string()).optional(),
+    byProvider: z.record(z.string(), ToolPolicyWithProfileSchema).optional(),
+    aliases: z.record(z.string(), z.string()).optional(),
+    aliasesOnly: z.boolean().optional(),
     web: ToolsWebSchema,
     media: ToolsMediaSchema,
     links: ToolsLinksSchema,
