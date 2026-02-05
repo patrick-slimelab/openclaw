@@ -6,8 +6,18 @@ type ToolProfilePolicy = {
 };
 
 const TOOL_NAME_ALIASES: Record<string, string> = {
+  // Legacy / convenience
   bash: "exec",
   "apply-patch": "apply_patch",
+
+  // Qwen Code / Qwen3-Coder-Next conventions
+  run_shell_command: "exec",
+  read_file: "read",
+  write_file: "write",
+  grep_search: "exec", // OpenClaw doesn't have a native grep tool; prefer exec+rg
+  glob: "exec", // prefer exec+find
+  list_directory: "exec", // prefer exec+ls
+  read_many_files: "exec", // can be done via exec (or add a native tool later)
 };
 
 export const TOOL_GROUPS: Record<string, string[]> = {

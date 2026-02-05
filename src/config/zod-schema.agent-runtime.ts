@@ -257,6 +257,8 @@ export const AgentToolsSchema = z
     alsoAllow: z.array(z.string()).optional(),
     deny: z.array(z.string()).optional(),
     byProvider: z.record(z.string(), ToolPolicyWithProfileSchema).optional(),
+    aliases: z.record(z.string(), z.string()).optional(),
+    aliasesOnly: z.boolean().optional(),
     elevated: z
       .object({
         enabled: z.boolean().optional(),
@@ -462,6 +464,8 @@ export const ToolsSchema = z
     alsoAllow: z.array(z.string()).optional(),
     deny: z.array(z.string()).optional(),
     byProvider: z.record(z.string(), ToolPolicyWithProfileSchema).optional(),
+    aliases: z.record(z.string(), z.string()).optional(),
+    aliasesOnly: z.boolean().optional(),
     web: ToolsWebSchema,
     media: ToolsMediaSchema,
     links: ToolsLinksSchema,

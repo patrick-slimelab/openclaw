@@ -204,6 +204,11 @@ export type AgentToolsConfig = {
   deny?: string[];
   /** Optional tool policy overrides keyed by provider id or "provider/model". */
   byProvider?: Record<string, ToolPolicyConfig>;
+
+  /** Optional per-agent tool alias map: aliasName -> canonicalToolName. */
+  aliases?: Record<string, string>;
+  /** If true, only expose aliased tool names (hide canonical tool names). */
+  aliasesOnly?: boolean;
   /** Per-agent elevated exec gate (can only further restrict global tools.elevated). */
   elevated?: {
     /** Enable or disable elevated mode for this agent (default: true). */
@@ -332,6 +337,15 @@ export type ToolsConfig = {
   deny?: string[];
   /** Optional tool policy overrides keyed by provider id or "provider/model". */
   byProvider?: Record<string, ToolPolicyConfig>;
+
+  /**
+   * Tool name aliases exposed to the model.
+   * Map: aliasName -> canonicalToolName
+   */
+  aliases?: Record<string, string>;
+  /** If true, only expose aliased tool names (hide canonical tool names). */
+  aliasesOnly?: boolean;
+
   web?: {
     search?: {
       /** Enable web search tool (default: true when API key is present). */

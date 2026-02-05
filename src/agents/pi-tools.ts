@@ -427,8 +427,51 @@ export function createOpenClawCodingTools(options?: {
     ? normalized.map((tool) => wrapToolWithAbortSignal(tool, options.abortSignal))
     : normalized;
 
-  // NOTE: Keep canonical (lowercase) tool names here.
-  // pi-ai's Anthropic OAuth transport remaps tool names to Claude Code-style names
-  // on the wire and maps them back for tool dispatch.
-  return withAbort;
+  const aliases = options?.config?.tools?.aliases;
+  const aliasesOnly = options?.config?.tools?.aliasesOnly === true;
+  const aliasEntries = aliases && typeof aliases === "object" ? Object.entries(aliases) : [];
+
+  if (aliasEntries.length === 0) {
+    // NOTE: Keep canonical (lowercase) tool names here.
+    // pi-ai's Anthropic OAuth transport remaps tool names to Claude Code-style names
+    // on the wire and maps them back for tool dispatch.
+    return withAbort;
+  }
+
+  const byCanonical = new Map(
+    withAbort.map((tool) => [normalizeToolName(tool.name), tool] as const),
+  );
+  const aliased: AnyAgentTool[] = [];
+  const seen = new Set<string>();
+
+  for (const [aliasNameRaw, canonicalRaw] of aliasEntries) {
+    const aliasName = aliasNameRaw.trim();
+    const canonical = normalizeToolName(canonicalRaw);
+    if (!aliasName || !canonical) {
+      continue;
+    }
+    const target = byCanonical.get(canonical);
+    if (!target) {
+      continue;
+    }
+    const normalizedAlias = normalizeToolName(aliasName);
+    if (seen.has(normalizedAlias)) {
+      continue;
+    }
+    seen.add(normalizedAlias);
+
+    aliased.push({
+      ...target,
+      name: aliasName,
+      label: aliasName,
+      execute: async (toolCallId, args, signal, onUpdate) =>
+        target.execute(toolCallId, args as never, signal, onUpdate),
+    });
+  }
+
+  if (aliasesOnly) {
+    return aliased;
+  }
+
+  return [...withAbort, ...aliased];
 }
