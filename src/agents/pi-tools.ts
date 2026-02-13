@@ -85,6 +85,19 @@ function isApplyPatchAllowedForModel(params: {
   });
 }
 
+function isQwenModel(params: { provider?: string; modelId?: string }) {
+  const provider = params.provider?.trim().toLowerCase();
+  const modelId = params.modelId?.trim().toLowerCase();
+  // Check for Qwen provider or model ID containing "qwen"
+  // Note: "qwen-portal" is handled via specific provider check if needed,
+  // but "qwen" in modelId catches most cases (ollama, openrouter, etc).
+  return (
+    provider === "qwen-portal" ||
+    (provider === "ollama" && modelId?.includes("qwen")) ||
+    modelId?.includes("qwen")
+  );
+}
+
 function resolveExecConfig(cfg: OpenClawConfig | undefined) {
   const globalExec = cfg?.tools?.exec;
   return {
@@ -235,13 +248,19 @@ export function createOpenClawCodingTools(options?: {
       allowModels: applyPatchConfig?.allowModels,
     });
 
+  const isQwen = isQwenModel({
+    provider: options?.modelProvider,
+    modelId: options?.modelId,
+  });
+  const skipCompatibilityPatch = isQwen;
+
   const base = (codingTools as unknown as AnyAgentTool[]).flatMap((tool) => {
     if (tool.name === readTool.name) {
       if (sandboxRoot) {
-        return [createSandboxedReadTool(sandboxRoot)];
+        return [createSandboxedReadTool(sandboxRoot, { skipCompatibilityPatch })];
       }
       const freshReadTool = createReadTool(workspaceRoot);
-      return [createOpenClawReadTool(freshReadTool)];
+      return [createOpenClawReadTool(freshReadTool, { skipCompatibilityPatch })];
     }
     if (tool.name === "bash" || tool.name === execToolName) {
       return [];
@@ -252,7 +271,11 @@ export function createOpenClawCodingTools(options?: {
       }
       // Wrap with param normalization for Claude Code compatibility
       return [
-        wrapToolParamNormalization(createWriteTool(workspaceRoot), CLAUDE_PARAM_GROUPS.write),
+        wrapToolParamNormalization(
+          createWriteTool(workspaceRoot),
+          CLAUDE_PARAM_GROUPS.write,
+          { skipCompatibilityPatch },
+        ),
       ];
     }
     if (tool.name === "edit") {
@@ -260,7 +283,13 @@ export function createOpenClawCodingTools(options?: {
         return [];
       }
       // Wrap with param normalization for Claude Code compatibility
-      return [wrapToolParamNormalization(createEditTool(workspaceRoot), CLAUDE_PARAM_GROUPS.edit)];
+      return [
+        wrapToolParamNormalization(
+          createEditTool(workspaceRoot),
+          CLAUDE_PARAM_GROUPS.edit,
+          { skipCompatibilityPatch },
+        ),
+      ];
     }
     return [tool];
   });
@@ -308,7 +337,10 @@ export function createOpenClawCodingTools(options?: {
     ...base,
     ...(sandboxRoot
       ? allowWorkspaceWrites
-        ? [createSandboxedEditTool(sandboxRoot), createSandboxedWriteTool(sandboxRoot)]
+        ? [
+            createSandboxedEditTool(sandboxRoot, { skipCompatibilityPatch }),
+            createSandboxedWriteTool(sandboxRoot, { skipCompatibilityPatch }),
+          ]
         : []
       : []),
     ...(applyPatchTool ? [applyPatchTool as unknown as AnyAgentTool] : []),

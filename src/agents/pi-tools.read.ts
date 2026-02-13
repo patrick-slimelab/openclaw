@@ -234,8 +234,11 @@ export function assertRequiredParams(
 export function wrapToolParamNormalization(
   tool: AnyAgentTool,
   requiredParamGroups?: readonly RequiredParamGroup[],
+  options?: { skipCompatibilityPatch?: boolean },
 ): AnyAgentTool {
-  const patched = patchToolSchemaForClaudeCompatibility(tool);
+  const patched = options?.skipCompatibilityPatch
+    ? tool
+    : patchToolSchemaForClaudeCompatibility(tool);
   return {
     ...patched,
     execute: async (toolCallId, params, signal, onUpdate) => {
@@ -268,23 +271,43 @@ function wrapSandboxPathGuard(tool: AnyAgentTool, root: string): AnyAgentTool {
   };
 }
 
-export function createSandboxedReadTool(root: string) {
+export function createSandboxedReadTool(
+  root: string,
+  options?: { skipCompatibilityPatch?: boolean },
+) {
   const base = createReadTool(root) as unknown as AnyAgentTool;
-  return wrapSandboxPathGuard(createOpenClawReadTool(base), root);
+  return wrapSandboxPathGuard(createOpenClawReadTool(base, options), root);
 }
 
-export function createSandboxedWriteTool(root: string) {
+export function createSandboxedWriteTool(
+  root: string,
+  options?: { skipCompatibilityPatch?: boolean },
+) {
   const base = createWriteTool(root) as unknown as AnyAgentTool;
-  return wrapSandboxPathGuard(wrapToolParamNormalization(base, CLAUDE_PARAM_GROUPS.write), root);
+  return wrapSandboxPathGuard(
+    wrapToolParamNormalization(base, CLAUDE_PARAM_GROUPS.write, options),
+    root,
+  );
 }
 
-export function createSandboxedEditTool(root: string) {
+export function createSandboxedEditTool(
+  root: string,
+  options?: { skipCompatibilityPatch?: boolean },
+) {
   const base = createEditTool(root) as unknown as AnyAgentTool;
-  return wrapSandboxPathGuard(wrapToolParamNormalization(base, CLAUDE_PARAM_GROUPS.edit), root);
+  return wrapSandboxPathGuard(
+    wrapToolParamNormalization(base, CLAUDE_PARAM_GROUPS.edit, options),
+    root,
+  );
 }
 
-export function createOpenClawReadTool(base: AnyAgentTool): AnyAgentTool {
-  const patched = patchToolSchemaForClaudeCompatibility(base);
+export function createOpenClawReadTool(
+  base: AnyAgentTool,
+  options?: { skipCompatibilityPatch?: boolean },
+): AnyAgentTool {
+  const patched = options?.skipCompatibilityPatch
+    ? base
+    : patchToolSchemaForClaudeCompatibility(base);
   return {
     ...patched,
     execute: async (toolCallId, params, signal) => {

@@ -17,6 +17,7 @@ import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { CONFIG_DIR, resolveUserPath } from "../../utils.js";
 import { resolveBundledSkillsDir } from "./bundled-dir.js";
 import { shouldIncludeSkill } from "./config.js";
+import { formatSkillsForQwen } from "./format-qwen.js";
 import {
   parseFrontmatter,
   resolveOpenClawMetadata,
@@ -199,6 +200,7 @@ export function buildWorkspaceSkillSnapshot(
     skillFilter?: string[];
     eligibility?: SkillEligibilityContext;
     snapshotVersion?: number;
+    modelId?: string;
   },
 ): SkillSnapshot {
   const skillEntries = opts?.entries ?? loadSkillEntries(workspaceDir, opts);
@@ -213,7 +215,13 @@ export function buildWorkspaceSkillSnapshot(
   );
   const resolvedSkills = promptEntries.map((entry) => entry.skill);
   const remoteNote = opts?.eligibility?.remote?.note?.trim();
-  const prompt = [remoteNote, formatSkillsForPrompt(resolvedSkills)].filter(Boolean).join("\n");
+
+  const isQwen = opts?.modelId?.toLowerCase().includes("qwen");
+  const formattedSkills = isQwen
+    ? formatSkillsForQwen(resolvedSkills)
+    : formatSkillsForPrompt(resolvedSkills);
+
+  const prompt = [remoteNote, formattedSkills].filter(Boolean).join("\n");
   return {
     prompt,
     skills: eligible.map((entry) => ({
@@ -235,6 +243,7 @@ export function buildWorkspaceSkillsPrompt(
     /** If provided, only include skills with these names */
     skillFilter?: string[];
     eligibility?: SkillEligibilityContext;
+    modelId?: string;
   },
 ): string {
   const skillEntries = opts?.entries ?? loadSkillEntries(workspaceDir, opts);
@@ -248,9 +257,14 @@ export function buildWorkspaceSkillsPrompt(
     (entry) => entry.invocation?.disableModelInvocation !== true,
   );
   const remoteNote = opts?.eligibility?.remote?.note?.trim();
-  return [remoteNote, formatSkillsForPrompt(promptEntries.map((entry) => entry.skill))]
-    .filter(Boolean)
-    .join("\n");
+
+  const resolvedSkills = promptEntries.map((entry) => entry.skill);
+  const isQwen = opts?.modelId?.toLowerCase().includes("qwen");
+  const formattedSkills = isQwen
+    ? formatSkillsForQwen(resolvedSkills)
+    : formatSkillsForPrompt(resolvedSkills);
+
+  return [remoteNote, formattedSkills].filter(Boolean).join("\n");
 }
 
 export function resolveSkillsPromptForRun(params: {
@@ -258,6 +272,7 @@ export function resolveSkillsPromptForRun(params: {
   entries?: SkillEntry[];
   config?: OpenClawConfig;
   workspaceDir: string;
+  modelId?: string;
 }): string {
   const snapshotPrompt = params.skillsSnapshot?.prompt?.trim();
   if (snapshotPrompt) {
@@ -267,6 +282,7 @@ export function resolveSkillsPromptForRun(params: {
     const prompt = buildWorkspaceSkillsPrompt(params.workspaceDir, {
       entries: params.entries,
       config: params.config,
+      modelId: params.modelId,
     });
     return prompt.trim() ? prompt : "";
   }
