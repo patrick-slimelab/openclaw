@@ -216,7 +216,7 @@ export function buildWorkspaceSkillSnapshot(
   const resolvedSkills = promptEntries.map((entry) => entry.skill);
   const remoteNote = opts?.eligibility?.remote?.note?.trim();
 
-  const isQwen = opts?.modelId?.toLowerCase().includes("qwen");
+  const isQwen = opts?.modelId?.toLowerCase().includes("qwen") || opts?.modelId?.toLowerCase().includes("scoob");
   const formattedSkills = isQwen
     ? formatSkillsForQwen(resolvedSkills)
     : formatSkillsForPrompt(resolvedSkills);
@@ -259,7 +259,7 @@ export function buildWorkspaceSkillsPrompt(
   const remoteNote = opts?.eligibility?.remote?.note?.trim();
 
   const resolvedSkills = promptEntries.map((entry) => entry.skill);
-  const isQwen = opts?.modelId?.toLowerCase().includes("qwen");
+  const isQwen = opts?.modelId?.toLowerCase().includes("qwen") || opts?.modelId?.toLowerCase().includes("scoob");
   const formattedSkills = isQwen
     ? formatSkillsForQwen(resolvedSkills)
     : formatSkillsForPrompt(resolvedSkills);

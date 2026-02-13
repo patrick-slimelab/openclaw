@@ -88,13 +88,13 @@ function isApplyPatchAllowedForModel(params: {
 function isQwenModel(params: { provider?: string; modelId?: string }) {
   const provider = params.provider?.trim().toLowerCase();
   const modelId = params.modelId?.trim().toLowerCase();
-  // Check for Qwen provider or model ID containing "qwen"
+  // Check for Qwen provider or model ID containing "qwen" or "scoob"
   // Note: "qwen-portal" is handled via specific provider check if needed,
   // but "qwen" in modelId catches most cases (ollama, openrouter, etc).
   return (
     provider === "qwen-portal" ||
-    (provider === "ollama" && modelId?.includes("qwen")) ||
-    modelId?.includes("qwen")
+    modelId?.includes("qwen") ||
+    modelId?.includes("scoob")
   );
 }
 
