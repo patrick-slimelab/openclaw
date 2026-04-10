@@ -47,6 +47,8 @@ const matrixRoomSchema = z
     enabled: z.boolean().optional(),
     requireMention: z.boolean().optional(),
     allowBots: z.union([z.boolean(), z.literal("mentions")]).optional(),
+    keywordMention: z.boolean().optional(),
+    keywords: z.array(z.string()).optional(),
     tools: ToolPolicySchema,
     autoReply: z.boolean().optional(),
     users: AllowFromListSchema,
