@@ -22,9 +22,10 @@ const EVENNIA_AGENT_PROMPT = [
   "You are acting as an Evennia MUD character through the Evennia channel.",
   "Use normal text replies when you want to speak in-character.",
   "Before each turn, OpenClaw may include a fresh `look` snapshot and cached `help` output in your context. Treat those as the authoritative room state.",
-  "If the user asks you to look around, inspect exits, inspect objects, or check available actions, use the evennia_command tool (`look`, `help`, `examine <thing>`, etc.) before answering.",
-  "When you want to perform an in-world action or run an Evennia command, call the evennia_command tool with exactly that command instead of saying the command aloud.",
-  "Never say text like `evennia_command(command=...)`; that is not an action. Use the actual tool call.",
+  "Do not run `look` just because a player spoke to you; answer ordinary questions from the provided room snapshot.",
+  "If a player asks what to do, give a concise in-character suggestion from the current room snapshot. Only use the Evennia command tool first when the player explicitly asks you to look, inspect, move, take, use, follow, or otherwise perform an action.",
+  "When you want to perform an in-world action or run an Evennia command, call the Evennia command tool with exactly that command instead of saying the command aloud.",
+  "Never say wrapper text like a function call, JSON, or tool syntax; that is not an action. Use the actual tool call.",
   "Examples of commands to send through the tool: look, north, get key, open crate, take emergency chalk from crate, get all from crate, use terminal, use chalk stub, pose studies the room.",
   "For open containers, prefer `take <item> from <container>` or `get all from <container>` rather than `get <container>` unless you mean to loot all visible contents.",
   "Never put pose commands in backticks or inline with speech. Use the tool, then send spoken text separately.",
@@ -433,6 +434,10 @@ function rewriteTrailingInlineMovementCommand(value, literalCommands) {
   return `${before}\n__OPENCLAW_EVENNIA_COMMAND__${commandIndex}__\n`;
 }
 
+function isStandaloneMovementCommand(value) {
+  return /^(?:n|s|e|w|u|d|north|south|east|west|up|down|in|out|back)$/iu.test(value.trim());
+}
+
 export function splitEvenniaOutboundText(text, account = undefined) {
   const raw = String(text ?? "");
   const parts = [];
@@ -456,13 +461,13 @@ export function splitEvenniaOutboundText(text, account = undefined) {
   };
 
   const literalToolCall =
-    /`*\s*evennia_command\s*\(\s*command\s*=\s*(?:"([^"]+)"|'([^']+)'|`([^`]+)`)\s*(?:,[^)]*)?\)\s*`*/giu;
+    /`*\s*evennia_command\s*\(\s*(?:command\s*=\s*)?(?:"([^"]+)"|'([^']+)'|`([^`]+)`|([a-z][a-z0-9 _'-]{0,160}))\s*(?:,[^)]*)?\)\s*`*/giu;
   let toolIndex = 0;
   let rewritten = "";
   const literalCommands = [];
   for (const match of raw.matchAll(literalToolCall)) {
     const commandIndex = literalCommands.length;
-    literalCommands.push(match[1] ?? match[2] ?? match[3]);
+    literalCommands.push(match[1] ?? match[2] ?? match[3] ?? match[4]);
     rewritten += raw.slice(toolIndex, match.index);
     rewritten += `\n__OPENCLAW_EVENNIA_COMMAND__${commandIndex}__\n`;
     toolIndex = match.index + match[0].length;
@@ -485,9 +490,23 @@ export function splitEvenniaOutboundText(text, account = undefined) {
       pushCommand(literalCommands[Number(toolCommand[1])]);
       continue;
     }
+    const malformedToolCommand = trimmed.match(
+      /^evennia_command\s*\(\s*(?:command\s*=\s*)?(?:"([^"]+)|'([^']+)|`([^`]+)|([^)]+))$/iu,
+    );
+    if (malformedToolCommand) {
+      pushCommand(
+        malformedToolCommand[1] ??
+          malformedToolCommand[2] ??
+          malformedToolCommand[3] ??
+          malformedToolCommand[4],
+      );
+      continue;
+    }
     const command = trimmed.match(/^pose\s+(.+)$/iu);
     if (command) {
       pushPose(command[1]);
+    } else if (isStandaloneMovementCommand(trimmed)) {
+      pushCommand(trimmed);
     } else {
       pushSay(line);
     }
@@ -776,7 +795,13 @@ async function dispatchEvenniaEvent(ctx, account, event) {
   const client = getClient(account.channelId, account.accountId);
   const roomContext = client ? await collectRoomContext(client, ctx.log) : "";
   const helpContext = client ? await collectHelpContext(client, ctx.log) : "";
-  const stateContext = `${formatContextBlock("Current room from automatic look", roomContext)}${formatContextBlock("Available Evennia help", helpContext)}`;
+  const roomContextTitle = direct
+    ? "Your current room from automatic look; this page/tell may be from someone elsewhere"
+    : "Current room from automatic look";
+  const directContext = direct
+    ? "\n\n[Direct Evennia page/tell context]\nThis is a remote direct message. Do not assume the sender is in your current room unless the message or room history proves it. Use the automatic look snapshot only as your own current location."
+    : "";
+  const stateContext = `${directContext}${formatContextBlock(roomContextTitle, roomContext)}${formatContextBlock("Available Evennia help", helpContext)}`;
 
   const messageId = event.id || `evennia-${Date.now()}`;
   const routeSessionKey = rt.routing.buildAgentSessionKey({
@@ -827,7 +852,7 @@ async function dispatchEvenniaEvent(ctx, account, event) {
     message: {
       rawBody: event.text,
       body: event.text,
-      bodyForAgent: `[Evennia ${direct ? "tell" : "room"} from ${event.sender}${event.room ? ` in ${event.room}` : ""}]\n${event.text}${stateContext}`,
+      bodyForAgent: `[Evennia ${direct ? "remote page/tell" : "room"} from ${event.sender}${event.room ? ` in ${event.room}` : ""}]\n${event.text}${stateContext}`,
       commandBody: event.text,
       inboundHistory,
       envelopeFrom: event.sender,

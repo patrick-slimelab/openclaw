@@ -14,6 +14,26 @@ describe("splitEvenniaOutboundText", () => {
     );
   });
 
+  it("converts bare literal evennia_command speech into command parts", () => {
+    expect(splitEvenniaOutboundText("evennia_command(look)")).toEqual([
+      { kind: "command", text: "look" },
+    ]);
+  });
+
+  it("converts malformed literal evennia_command speech into command parts", () => {
+    expect(
+      splitEvenniaOutboundText(
+        "evennia_command(command=\"tell shaggy = back to atrium then. stay put, i'm coming.",
+      ),
+    ).toEqual([
+      { kind: "command", text: "tell shaggy = back to atrium then. stay put, i'm coming." },
+    ]);
+  });
+
+  it("converts standalone direction replies into command parts", () => {
+    expect(splitEvenniaOutboundText("back")).toEqual([{ kind: "command", text: "back" }]);
+  });
+
   it("keeps surrounding speech while removing literal tool syntax from room output", () => {
     expect(
       splitEvenniaOutboundText('One sec. `evennia_command(command="look")` Okay, I checked.'),
